@@ -1,1 +1,231 @@
+FIO命令解析:
+
+首先我们来看刚才执行的命令: 2个任务并行测试，队列深度64，异步模式，测试数据100M，数据块分别
+为4KB和512字节。所以，这个命令是在测试两个线程、队列深度64下的4KB随机写IOPS和512字节随机写
+IOPS。所以，从性能调优的角度看，这里测试的是IOPS，不是测带宽。 并且filename=/testfolder
+/fio.test， 这代表测试的是文件系统的性能。如果是块设备，则代表测试的是裸设备的性能，例如：
+filename=/dev/sdb1
+
+fio -rw=randwrite -ioengine=libaio -direct=1 -thread -numjobs=1 -iodepth=64 -filename=/testfolder/fio.test -size=100M -name=job1 -offset=0MB -bs=4k -name=job2 -offset=10G -bs=512 -output TestResult.log
+
+下面是对刚才执行的命令中，每个参数的介绍
+
+-rw=randwrite：读写模式，randwrite是随机写测试，还有顺序读read，顺序写write，随机读randread，混合读写等。
+
+-ioengine=libaio：libaio指的是异步模式，如果是同步就要用sync。
+
+-direct=1：是否使用directIO。
+
+-thread：使用pthread_create创建线程，另一种是fork创建进程。进程的开销比线程要大，一般都采用thread测试。
+
+–numjobs=1：每个job是1个线程，这里用了几，后面每个用-name指定的任务就开几个线程测试。所以最终线程数=任务数* numjobs。
+
+-iodepth=64：队列深度64.
+
+-filename=/testfolder/fio.test：数据写到/testfolder/fio.test这个文件，也可以是写到一个盘（块设备），例如/dev/sda4
+
+-size=100M：每个线程写入数据量是100M。
+
+-name=job1：一个任务的名字，名字随便起，重复了也没关系。这个例子指定了job1和job2，建立了两个任务。-name之后的就是这个任务独有的参数。
+
+-offset=0MB：从偏移地址0MB开始写。
+
+-bs=4k：每一个BIO命令包含的数据大小是4KB。一般4KB IOPS测试，就是在这里设置。
+
+–output TestResult.log：日志输出到TestResult.log。
+
+FIO结果解析:
+
+FIO会为每个Job打印统计信息。 最后面是合计的数值。我们一般看重的是总的性能和延迟。首先看
+的是最后总的带宽，bw=827KiB/s (847kB/s), 算成4KB就是212 IOPS。这是一台虚拟机，并且主
+机使用的是3Gb的SATA硬盘做RAID1，所以性能很低。
+
+再来看看延迟Latency。Slat是发命令时间，slat (usec): min=4, max=1568, avg=14.11, stdev=10.86说明最短时间4微秒，最长1568微秒，平均14.11微秒，标准差10.86。
+
+clat是命令执行时间。
+
+lat就是总的延迟。
+
+clat percentiles (usec)给出了延迟的统计分布。比如90.00th=[835]说明90%的写命令延迟都在835微秒以内。
+
+其它参数说明
+
+io=执行了多少M的IO
+
+bw=平均IO带宽
+
+iops=IOPS
+
+runt=线程运行时间
+
+bw=带宽
+
+cpu=利用率
+
+IO depths=io队列
+
+IO submit=单个IO提交要提交的IO数
+
+IO complete=Like the above submit number, but for completions instead.
+
+IO issued=The number of read/write requests issued, and how many of them were short.
+
+IO latencies=IO完延迟的分布
+
+io=总共执行了多少size的IO
+
+aggrb=group总带宽
+
+minb=最小.平均带宽.
+
+maxb=最大平均带宽.
+
+mint=group中线程的最短运行时间.
+
+maxt=group中线程的最长运行时间.
+
+ios=所有group总共执行的IO数.
+
+merge=总共发生的IO合并数.
+
+ticks=Number of ticks we kept the disk busy.
+
+io_queue=花费在队列上的总共时间.
+
+util=磁盘利用率
+
+FIO其它参数：
+
+FIO是一款功能非常强大的性能测试工具，可以使用“cat README” 和 ”man fio”来查看FIO所有的参数
+功能。也可以在以下网址查看关于FIO的详细介绍。
+
+https://linux.die.net/man/1/fio
+
+1，    loops=int， 此参数代表测试任务循环执行的次数，如果不带此参数默认为1。这个参数非常有用，
+假如我们现在知道测试任务执行一次的时间为1个小时，那么可以通过loops=24来让压力测试跑满24小时
+
+2，    lockmem=int，这个参数规定测试占用的内存容量，比如lockmem=1G, 只使用1G内存进行测试，
+用此参数可以模拟系统内存很小的测试场景。
+
+3，    IO Engine
+
+如下图，FIO中支持多达19种IO Engine，通过这些可以模拟实际应用中大多数IO场景，从而达到最贴近现
+实的IO压力测试。在测试时，选择合适的IO Engine可以帮助我们尽可能的模拟出与客户实际应用相同的IO
+场景，对售前测试或者售后FA来说都非常有帮助。具体选择哪一种IO Engine需要先了解每个IO Engine的
+作用。可以通过上述命令进行学习。
+
+混合随机读写
+
+IO的类型取决于客户的应用类型，根据经验，客户的IO类型一般是随机混合IO比较多，比如数据库类应用
+都是随机IO，并且是小IO。这种类型的应用如果我们单单只测试顺序读，顺序写，随机读或者随机写，往往
+无法真正的反应出真实的IO压力。或者在问题分析时无法真正的找到问题根源。下面举个例子是通过FIO进
+行混合随机读写压力测试。
+
+fio -filename=/dev/sdb1 -direct=1 -iodepth 1 -thread -rw=randrw -rwmixread=70 -ioengine=psync -bs=16k -size=200G -numjobs=30 -runtime=100 -group_reporting -name=mytest -ioscheduler=noop
+
+命令说明：
+
+rw=randrw        测试随机写和读的I/O
+
+rwmixread=70     在混合读写的模式下，写占30%
+
+numjobs=30      本次的测试线程为30
+
+runtime=100      测试时间为100秒，如果不写则一直将200G文件分4k每次写完为止。
+
+group_reporting   关于显示结果的，汇总每个进程的信息
+
+ioscheduler=noop  Linux IO调度器，Noop调度算法也叫作电梯调度算法，它将IO请求放入到一个FIFO
+队列中，然后逐个执行这些IO请求，这个算法在测试SSD的时候并不太合适。
+
+5，    通用测试场景
+
+下面是一些通用的测试场景，可以直接运行，或按实际情况适当修改参数后运行
+
+100%随机，100%读， 4K
+
+fio -filename=/dev/emcpowerb -direct=1 -iodepth 1 -thread -rw=randread -ioengine=psync -bs=4k -size=1000G -numjobs=50 -runtime=180 -group_reporting -name=rand_100read_4k
+
+100%随机，100%写， 4K
+
+fio -filename=/dev/emcpowerb -direct=1 -iodepth 1 -thread -rw=randwrite -ioengine=psync -bs=4k -size=1000G -numjobs=50 -runtime=180 -group_reporting -name=rand_100write_4k
+
+100%顺序，100%读 ，4K
+
+fio -filename=/dev/emcpowerb -direct=1 -iodepth 1 -thread -rw=read -ioengine=psync -bs=4k -size=1000G -numjobs=50 -runtime=180 -group_reporting -name=sqe_100read_4k
+
+100%顺序，100%写 ，4K
+
+fio -filename=/dev/emcpowerb -direct=1 -iodepth 1 -thread -rw=write -ioengine=psync -bs=4k -size=1000G -numjobs=50 -runtime=180 -group_reporting -name=sqe_100write_4k
+
+100%随机，70%读，30%写 4K
+
+fio -filename=/dev/emcpowerb -direct=1 -iodepth 1 -thread -rw=randrw -rwmixread=70 -ioengine=psync -bs=4k -size=1000G -numjobs=50 -runtime=180 -group_reporting -name=randrw_70read_4k
+
+4，同时，也可以在FIO测试时使用性能分析监控工具实时查看系统IO。例如在RHEL7中可以使用PCP进行
+监测。PCP也是一款非常实用强大的性能分析监控工具。
+
 fio -filename=/dev/sdp -direct=1 -iodepth 1 -thread -rw=readwrite -rwmixread=50 -ioengine=psync -bs=4k -size=50G -numjobs=30 -runtime=1000 -group_reporting -name=rw-readwrite
+
+
+
+3.4.6.1.1 4k小块 100%随机写
+注意：#符号是为了防止粘贴误操作影响环境，执行时请不要添加此符号
+#fio --filename=/root/test.tst --direct=1 --ioengine=libaio --iodepth=128 --numjobs=4 --rw=randwrite --bs=4k --group_reporting --name=mytest --runtime=60 --time_based --size=1G
+ 
+3.4.6.1.2 4k小块100%随机读
+#fio --filename=/root/test.tst --direct=1 --ioengine=libaio --iodepth=128 --numjobs=4 --rw=randread --bs=4k --group_reporting --name=mytest --runtime=60 --time_based --size=1G
+ 
+3.4.6.1.3 1M大块100%顺序写
+#fio --filename=/root/test.tst --direct=1 --ioengine=libaio --iodepth=64 --numjobs=1 --rw=write --bs=1M --group_reporting --name=mytest --runtime=60 --time_based --size=1G
+ 
+3.4.6.1.4 1M大块100%顺序读
+#fio --filename=/root/test.tst --direct=1 --ioengine=libaio --iodepth=64 --numjobs=1 --rw=read --bs=1M --group_reporting --name=mytest --runtime=60 --time_based --size=1G
+ 
+3.4.6.1.5 fio rbd压测裸卷
+#fio -direct=1 -iodepth=64 -thread -rw=write -ioengine=rbd -bs=1m -group_reporting -name=test -numjobs=1 -runtime=120 -clientname=admin -pool=pool-df65db93b4184402ae0b9e0479f0b00f(池-uuid)  -rbdname=test1(卷-uuid)
+3.4.6.1.6参数解释命令：
+
+1、filename=/root/test.tst       测试文件名称，可以是一个文件也可以是一个裸盘
+2、direct=1                 测试过程绕过机器自带的buffer。使测试结果更真实
+3、ioengine=libaio          io引擎使用libaio方式
+4、iodepth=64		进程的队列深度
+5、numjobs=4		测试的线程数
+6、rw=randwrite /randread /write /read /rw/randrw            测试随机写、随机读、顺序写、顺序读、顺序混合读写、随机混合读写的I/O
+7、rwmixread=70		在混合读写模式下，读占70%
+8、bs=4k			单次io的块文件大小为4k
+9、group_reporting          关于显示结果的，汇总每个进程的信息
+10、name=mytest			job名，用于输出信息用的名字
+11、size=1G			测试的文件的大小
+12、runtime=60		设置测试时间为60秒,如果不写则一直将1g文件分4k（bs值）每次写完为止
+13、time_based		如果在60秒内1G文件写完成，设置此参数则重复写，直到设置的测试时间结束
+
+参数解释结果
+io= 执行了多少M的IO
+bw= 平均IO带宽
+iops=   IOPS
+runt= 线程运行时间
+slat 提交延迟
+clat 完成延迟
+lat响应时间
+bw 带宽
+cpu利用率
+IO depths=io队列
+IO submit=单个IO提交要提交的IO数
+IO complete= Like the above submit number, but for completions instead.
+IO issued= The number of read/write requests issued, and how many
+of them were short.
+IO latencies=IO完延迟的分布
+ 
+io= 总共执行了多少size的IO
+aggrb= group总带宽
+minb= 最小.平均带宽.
+maxb= 最大平均带宽.
+mint= group中线程的最短运行时间.
+maxt= group中线程的最长运行时间.
+ 
+ios= 所有group总共执行的IO数.
+merge= 总共发生的IO合并数.
+ticks= Number of ticks we kept the disk busy.
+io_queue= 花费在队列上的总共时间.
+util= 磁盘利用率
